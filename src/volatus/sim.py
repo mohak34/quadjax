@@ -26,8 +26,18 @@ MOTOR_Y = jnp.array([-ARM, -ARM, ARM, ARM])
 # +1 spins counterclockwise seen from above. Diagonal pairs spin the same way so yaw torques cancel.
 MOTOR_SPIN = jnp.array([1.0, -1.0, 1.0, -1.0])
 
-# Fraction of the gap between command and actual thrust closed in one step.
-_MOTOR_ALPHA = 1.0 - jnp.exp(-DT / MOTOR_TAU)
+
+class Body(NamedTuple):
+    """Physical numbers that differ from drone to drone. Training varies them so the policy
+    cannot rely on one exact drone."""
+
+    mass: jax.Array  # kg
+    inertia: jax.Array  # (3,) kg m^2
+    motor_gain: jax.Array  # (4,) thrust each motor really makes per newton commanded
+    motor_tau: jax.Array  # s
+
+
+NOMINAL = Body(jnp.float32(MASS), INERTIA, jnp.ones(4), jnp.float32(MOTOR_TAU))
 
 
 class State(NamedTuple):
@@ -91,20 +101,22 @@ def rotation(q: jax.Array) -> jax.Array:
     )
 
 
-def step(s: State, cmd: jax.Array) -> State:
+def step(s: State, cmd: jax.Array, body: Body = NOMINAL) -> State:
     """Advance one drone by DT. cmd is the (4,) thrust each motor is asked for, N."""
-    # Motors lag: actual thrust moves toward the command, it does not jump.
-    thrust = s.thrust + (jnp.clip(cmd, 0.0, MAX_THRUST) - s.thrust) * _MOTOR_ALPHA
+    # Motors lag: actual thrust closes this fraction of the gap to the command each step.
+    alpha = 1.0 - jnp.exp(-DT / body.motor_tau)
+    target = jnp.clip(cmd, 0.0, MAX_THRUST) * body.motor_gain
+    thrust = s.thrust + (target - s.thrust) * alpha
     total, torque = mix(thrust)
 
     # Newton: thrust pushes along the body's up axis, gravity pulls straight down.
-    acc = rotation(s.quat)[:, 2] * total / MASS - jnp.array([0.0, 0.0, GRAVITY])
+    acc = rotation(s.quat)[:, 2] * total / body.mass - jnp.array([0.0, 0.0, GRAVITY])
     vel = s.vel + acc * DT
     pos = s.pos + vel * DT
 
     # Euler's rotation equation: J dw/dt = torque - w x (J w).
     # The cross term is the gyroscopic effect of an already-spinning body.
-    omega_dot = (torque - jnp.cross(s.omega, INERTIA * s.omega)) / INERTIA
+    omega_dot = (torque - jnp.cross(s.omega, body.inertia * s.omega)) / body.inertia
     omega = s.omega + omega_dot * DT
 
     # Orientation changes at dq/dt = 0.5 q * (0, w). Renormalize so rounding never stretches q.
