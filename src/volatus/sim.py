@@ -79,11 +79,15 @@ def quat_mul(a: jax.Array, b: jax.Array) -> jax.Array:
     )
 
 
-def body_z(q: jax.Array) -> jax.Array:
-    """The drone's up axis in world coordinates: the third column of its rotation matrix."""
+def rotation(q: jax.Array) -> jax.Array:
+    """3x3 rotation matrix. Its columns are the drone's forward, left and up axes in world coordinates."""
     w, x, y, z = q
-    return jnp.stack(
-        [2 * (x * z + w * y), 2 * (y * z - w * x), 1 - 2 * (x * x + y * y)]
+    return jnp.array(
+        [
+            [1 - 2 * (y * y + z * z), 2 * (x * y - w * z), 2 * (x * z + w * y)],
+            [2 * (x * y + w * z), 1 - 2 * (x * x + z * z), 2 * (y * z - w * x)],
+            [2 * (x * z - w * y), 2 * (y * z + w * x), 1 - 2 * (x * x + y * y)],
+        ]
     )
 
 
@@ -94,7 +98,7 @@ def step(s: State, cmd: jax.Array) -> State:
     total, torque = mix(thrust)
 
     # Newton: thrust pushes along the body's up axis, gravity pulls straight down.
-    acc = body_z(s.quat) * total / MASS - jnp.array([0.0, 0.0, GRAVITY])
+    acc = rotation(s.quat)[:, 2] * total / MASS - jnp.array([0.0, 0.0, GRAVITY])
     vel = s.vel + acc * DT
     pos = s.pos + vel * DT
 
