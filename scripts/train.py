@@ -1,6 +1,6 @@
 """Train a policy with PPO on one task, test it, and save the learning curve and weights.
 
-Usage: train.py hover|waypoint
+Usage: train.py hover|waypoint|forest
 """
 
 import pickle
@@ -13,7 +13,7 @@ import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import numpy as np
 
-from volatus import hover, ppo, waypoint
+from volatus import forest, hover, ppo, waypoint
 
 OUT = Path("out")
 
@@ -70,7 +70,7 @@ def train[S](
     crashed = crashed.any(axis=0)
     ok = dist[:, ~crashed]
     print(f"\ntest on 1000 new starts: crashed {int(crashed.sum())}")
-    for label, t in checks:
+    for label, t in checks if ok.shape[1] else []:
         d = ok[t]
         print(
             f"  {label}: median distance {float(jnp.median(d)) * 100:5.1f} cm, worst {float(d.max()) * 100:5.1f} cm"
@@ -121,5 +121,14 @@ match sys.argv[1:]:
             w.MAX_STEPS,
             w.CHECKS,
         )
+    case ["forest"]:
+        f = forest
+        train(
+            "forest",
+            ppo.Env(f.reset, f.step, f.OBS_SIZE, f.ACT_SIZE),
+            f.TRAIN_STEPS,
+            f.MAX_STEPS,
+            f.CHECKS,
+        )
     case _:
-        sys.exit("usage: train.py hover|waypoint")
+        sys.exit("usage: train.py hover|waypoint|forest")
