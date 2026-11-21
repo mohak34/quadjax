@@ -53,7 +53,10 @@ _, ours = sim.rollout(
     sim.hover_state(jnp.array([0.0, 0.0, 1.0])), wobble_commands(steps)
 )
 # Forces our sim actually applied each step (after motor lag), as thrust + 3 torques.
+# Drag at each step depends on the spin before it.
 total, torque = jax.vmap(sim.mix)(ours.thrust)
+spin_before = jnp.concatenate([jnp.zeros((1, 3)), ours.omega[:-1]])
+torque = torque + jax.vmap(sim.drag)(spin_before)
 forces = np.asarray(jnp.concatenate([total[:, None], torque], axis=1))
 
 model = mujoco.MjModel.from_xml_string(XML)  # ty: ignore[missing-attribute]

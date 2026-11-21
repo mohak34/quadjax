@@ -17,6 +17,10 @@ YAW_COEF = 0.006  # m, yaw torque per newton of motor thrust (propeller drag)
 MOTOR_TAU = 0.03  # s, time for a motor to cover 63% of a change in command
 MAX_THRUST = 0.15  # N per motor
 DT = 0.002  # s, 500 Hz physics
+# N m s^2, air resisting spin about the up axis: torque -YAW_DRAG w|w|. Chosen, not measured,
+# so a drone that lost a motor settles at roughly 30 rad/s instead of spinning up forever.
+# At normal yaw rates (2 rad/s) it is under 1% of what the motors can twist.
+YAW_DRAG = 1.4e-6
 
 HOVER_THRUST = MASS * GRAVITY / 4  # N per motor to exactly cancel gravity
 
@@ -76,6 +80,11 @@ def mix(thrust: jax.Array) -> tuple[jax.Array, jax.Array]:
     return total, torque
 
 
+def drag(omega: jax.Array) -> jax.Array:
+    """(3,) body torque from air resisting yaw spin."""
+    return jnp.array([0.0, 0.0, -YAW_DRAG * omega[2] * jnp.abs(omega[2])])
+
+
 def quat_mul(a: jax.Array, b: jax.Array) -> jax.Array:
     aw, ax, ay, az = a
     bw, bx, by, bz = b
@@ -108,6 +117,7 @@ def step(s: State, cmd: jax.Array, body: Body = NOMINAL) -> State:
     target = jnp.clip(cmd, 0.0, MAX_THRUST) * body.motor_gain
     thrust = s.thrust + (target - s.thrust) * alpha
     total, torque = mix(thrust)
+    torque = torque + drag(s.omega)
 
     # Newton: thrust pushes along the body's up axis, gravity pulls straight down.
     acc = rotation(s.quat)[:, 2] * total / body.mass - jnp.array([0.0, 0.0, GRAVITY])
