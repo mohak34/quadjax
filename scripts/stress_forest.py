@@ -29,27 +29,13 @@ with open(PARAMS, "rb") as f:
     params: ppo.Params = pickle.load(f)
 
 
-def forest_of(key: jax.Array, trees: int, radius: tuple[float, float]) -> jax.Array:
-    k_x, k_y, k_r = jax.random.split(key, 3)
-    return jnp.stack(
-        [
-            jax.random.uniform(
-                k_x, (trees,), minval=forest.FOREST_X[0], maxval=forest.FOREST_X[1]
-            ),
-            jax.random.uniform(
-                k_y, (trees,), minval=-forest.FOREST_Y, maxval=forest.FOREST_Y
-            ),
-            jax.random.uniform(k_r, (trees,), minval=radius[0], maxval=radius[1]),
-        ],
-        axis=1,
-    )
-
-
 def evaluate(trees: int, radius: tuple[float, float]) -> tuple[float, float]:
     keys = jax.random.split(jax.random.key(1), N)
-    s, _ = jax.vmap(forest.reset)(keys)
-    s = s._replace(trees=jax.vmap(lambda k: forest_of(k, trees, radius))(keys))
-    obs = jax.vmap(forest.observe)(s)
+    s, obs = jax.vmap(
+        lambda k: forest.start(
+            k, forest.random_trees(jax.random.fold_in(k, 1), trees, radius)
+        )
+    )(keys)
 
     def go(c: tuple[forest.EnvState, jax.Array, jax.Array], _step: None):
         s, obs, dead = c

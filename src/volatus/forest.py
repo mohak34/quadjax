@@ -12,6 +12,10 @@ Without the speed cap it learns to fly at ~10 m/s and can no longer brake at the
 
 Every reading is noisy, like on a real drone (numbers under "Sensor noise" below), so the
 policy cannot learn to trust any single pixel or measurement exactly.
+
+The policy sees the last FRAMES depth images, newest first. More than one would let it
+see trunks move across the view and remember one it is passing after it leaves the view,
+but 3 frames crashed more than 1 at the same training budget (bigger input, same data).
 """
 
 from typing import NamedTuple
@@ -24,7 +28,7 @@ from volatus.waypoint import random_body
 
 SUBSTEPS = 10  # 500 Hz physics, 50 Hz policy
 MAX_STEPS = 400  # 8 s
-CONFIG = ppo.Config(total_steps=300_000_000)
+CONFIG = ppo.Config(total_steps=300_000_000, hidden=128)
 CHECKS = [(f"after {sec} s", sec * 50 - 1) for sec in (2, 4, 8)]
 
 TREES = 30
@@ -44,7 +48,8 @@ TILT_NOISE = 0.01  # added to each rotation matrix entry, ~0.6 degrees
 GYRO_NOISE = 0.05  # rad/s
 DEPTH_NOISE = (0.02, 0.02)  # m: fixed part, then per m of distance
 
-OBS_SIZE = 18 + depth.PIXELS
+FRAMES = 1  # depth images in the observation
+OBS_SIZE = 18 + FRAMES * depth.PIXELS
 ACT_SIZE = 4
 
 
@@ -54,30 +59,35 @@ class EnvState(NamedTuple):
     trees: jax.Array  # (TREES, 3): x, y, radius
     t: jax.Array
     key: jax.Array  # this episode's sensor noise
+    frames: (
+        jax.Array
+    )  # (FRAMES, PIXELS) noisy depth images scaled to 0..1, newest first
+
+
+def _noise(s: EnvState, i: int, std: float | jax.Array, shape: tuple[int, ...]):
+    """Noise for reading i at this step: the same every time it is asked for."""
+    k = jax.random.fold_in(jax.random.fold_in(s.key, s.t), i)
+    return std * jax.random.normal(k, shape)
+
+
+def look(s: EnvState) -> jax.Array:
+    """(PIXELS,) noisy depth image right now, scaled to 0..1."""
+    seen = depth.image(s.drone.pos, s.drone.quat, s.trees)
+    seen = seen + _noise(s, 4, DEPTH_NOISE[0] + DEPTH_NOISE[1] * seen, seen.shape)
+    return jnp.clip(seen, 0.0, depth.MAX_DEPTH) / depth.MAX_DEPTH
 
 
 def observe(s: EnvState) -> jax.Array:
-    """Same 18 numbers as waypoint with the goal as target, then the depth image scaled to
-    0..1, all with sensor noise."""
+    """Same 18 numbers as waypoint with the goal as target, with sensor noise, then the
+    stored depth frames."""
     d = s.drone
-    k_pos, k_vel, k_rot, k_gyro, k_depth = jax.random.split(
-        jax.random.fold_in(s.key, s.t), 5
-    )
-
-    def noise(
-        k: jax.Array, std: float | jax.Array, shape: tuple[int, ...]
-    ) -> jax.Array:
-        return std * jax.random.normal(k, shape)
-
-    seen = depth.image(d.pos, d.quat, s.trees)
-    seen = seen + noise(k_depth, DEPTH_NOISE[0] + DEPTH_NOISE[1] * seen, seen.shape)
     return jnp.concatenate(
         [
-            GOAL - d.pos + noise(k_pos, POS_NOISE, (3,)),
-            d.vel + noise(k_vel, VEL_NOISE, (3,)),
-            sim.rotation(d.quat).ravel() + noise(k_rot, TILT_NOISE, (9,)),
-            d.omega + noise(k_gyro, GYRO_NOISE, (3,)),
-            jnp.clip(seen, 0.0, depth.MAX_DEPTH) / depth.MAX_DEPTH,
+            GOAL - d.pos + _noise(s, 0, POS_NOISE, (3,)),
+            d.vel + _noise(s, 1, VEL_NOISE, (3,)),
+            sim.rotation(d.quat).ravel() + _noise(s, 2, TILT_NOISE, (9,)),
+            d.omega + _noise(s, 3, GYRO_NOISE, (3,)),
+            s.frames.ravel(),
         ]
     )
 
@@ -92,21 +102,30 @@ def hits_tree(pos: jax.Array, trees: jax.Array) -> jax.Array:
     return jnp.any(gap < DRONE_RADIUS)
 
 
-def reset(key: jax.Array) -> tuple[EnvState, jax.Array]:
-    """New forest and body. The drone starts near (0, 0, 1), close to level and slow."""
-    k_body, k_tx, k_ty, k_tr, k_pos, k_vel, k_axis, k_angle, k_noise = jax.random.split(
-        key, 9
-    )
-    trees = jnp.stack(
+def random_trees(
+    key: jax.Array, n: int = TREES, radius: tuple[float, float] = TRUNK_RADIUS
+) -> jax.Array:
+    """(n, 3) trunks scattered over the forest patch."""
+    k_x, k_y, k_r = jax.random.split(key, 3)
+    return jnp.stack(
         [
-            jax.random.uniform(k_tx, (TREES,), minval=FOREST_X[0], maxval=FOREST_X[1]),
-            jax.random.uniform(k_ty, (TREES,), minval=-FOREST_Y, maxval=FOREST_Y),
-            jax.random.uniform(
-                k_tr, (TREES,), minval=TRUNK_RADIUS[0], maxval=TRUNK_RADIUS[1]
-            ),
+            jax.random.uniform(k_x, (n,), minval=FOREST_X[0], maxval=FOREST_X[1]),
+            jax.random.uniform(k_y, (n,), minval=-FOREST_Y, maxval=FOREST_Y),
+            jax.random.uniform(k_r, (n,), minval=radius[0], maxval=radius[1]),
         ],
         axis=1,
     )
+
+
+def reset(key: jax.Array) -> tuple[EnvState, jax.Array]:
+    k_start, k_trees = jax.random.split(key)
+    return start(k_start, random_trees(k_trees))
+
+
+def start(key: jax.Array, trees: jax.Array) -> tuple[EnvState, jax.Array]:
+    """New body in the given forest. The drone starts near (0, 0, 1), close to level and
+    slow. Every depth frame starts as the first view."""
+    k_body, k_pos, k_vel, k_axis, k_angle, k_noise = jax.random.split(key, 6)
     axis = jax.random.normal(k_axis, (3,))
     angle = jax.random.uniform(k_angle, maxval=jnp.radians(10))
     drone = sim.State(
@@ -126,7 +145,15 @@ def reset(key: jax.Array) -> tuple[EnvState, jax.Array]:
         omega=jnp.zeros(3),
         thrust=jnp.full(4, sim.HOVER_THRUST),
     )
-    s = EnvState(drone, random_body(k_body), trees, jnp.int32(0), k_noise)
+    s = EnvState(
+        drone,
+        random_body(k_body),
+        trees,
+        jnp.int32(0),
+        k_noise,
+        jnp.zeros((FRAMES, depth.PIXELS)),
+    )
+    s = s._replace(frames=jnp.tile(look(s), (FRAMES, 1)))
     return s, observe(s)
 
 
@@ -151,4 +178,5 @@ def step(
     reward = progress + jnp.exp(-dist - 0.1 * jnp.linalg.norm(drone.omega))
     crashed = hit | (jnp.abs(drone.pos[1]) > WALL_Y) | (drone.pos[2] > CEILING)
     s = s._replace(drone=drone, t=s.t + 1)
+    s = s._replace(frames=jnp.concatenate([look(s)[None], s.frames[:-1]]))
     return s, observe(s), reward, crashed, s.t >= MAX_STEPS

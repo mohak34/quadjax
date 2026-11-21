@@ -22,9 +22,9 @@ SEED = 2
 with open(OUT / "forest_params.pkl", "rb") as f:
     params: ppo.Params = pickle.load(f)
 
-state, _ = jax.vmap(forest.reset)(jax.random.split(jax.random.key(SEED), N))
-# Everyone flies forest 0.
-state = state._replace(trees=jnp.tile(state.trees[0], (N, 1, 1)))
+key = jax.random.key(SEED)
+trees = forest.random_trees(key)  # everyone flies this one forest
+state, _ = jax.vmap(lambda k: forest.start(k, trees))(jax.random.split(key, N))
 
 
 @jax.jit
@@ -38,7 +38,7 @@ def policy_step(
         s2,
         s,
     )
-    return s2, dead | crashed, obs[0, 18:]  # blue drone's depth image, 0..1
+    return s2, dead | crashed, obs[0, 18 : 18 + depth.PIXELS]  # blue's newest frame
 
 
 goal = np.asarray(forest.GOAL)
