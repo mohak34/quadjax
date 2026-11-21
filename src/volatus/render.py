@@ -41,11 +41,22 @@ def _drone_xml(i: int) -> str:
 
 
 class Scene:
-    """A floor, n drones and fixed marker balls (targets). Call frame() once per picture."""
+    """A floor, n drones, fixed marker balls (targets) and optional tree trunks (x, y, radius).
+    Call frame() once per picture; move camera.lookat between frames to follow the drones."""
 
     def __init__(
-        self, n: int, markers: np.ndarray, lookat: np.ndarray, distance: float
+        self,
+        n: int,
+        markers: np.ndarray,
+        lookat: np.ndarray,
+        distance: float,
+        trees: np.ndarray | None = None,
+        floor: float = 4.0,
     ) -> None:
+        trunks = "".join(
+            f'<geom type="cylinder" size="{r} 1.5" pos="{x} {y} 1.5" rgba="{_rgba("#8a6a4a")}"/>'
+            for x, y, r in (() if trees is None else trees)
+        )
         balls = "".join(
             f'<site pos="{x} {y} {z}" type="sphere" size="0.05" rgba="1 1 1 .35"/>'
             for x, y, z in markers
@@ -56,12 +67,13 @@ class Scene:
           <asset>
             <texture name="grid" type="2d" builtin="checker" rgb1=".1 .1 .1" rgb2=".15 .15 .15"
                      width="300" height="300"/>
-            <material name="grid" texture="grid" texrepeat="8 8"/>
+            <material name="grid" texture="grid" texrepeat="{2 * floor} {2 * floor}"/>
           </asset>
           <worldbody>
             <light pos="0 0 5" dir="0 0 -1" diffuse=".8 .8 .8"/>
-            <geom type="plane" size="4 4 .1" material="grid"/>
+            <geom type="plane" size="{floor} {floor} .1" material="grid"/>
             {balls}
+            {trunks}
             {"".join(_drone_xml(i) for i in range(n))}
           </worldbody>
         </mujoco>"""
