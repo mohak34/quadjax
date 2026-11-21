@@ -1,6 +1,6 @@
 """Train a policy with PPO on one task, test it, and save the learning curve and weights.
 
-Usage: train.py hover|waypoint|forest
+Usage: train.py hover|waypoint|forest|failure
 """
 
 import pickle
@@ -14,7 +14,7 @@ import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import numpy as np
 
-from volatus import forest, hover, ppo, waypoint
+from volatus import failure, forest, hover, ppo, waypoint
 
 OUT = Path("out")
 
@@ -134,5 +134,15 @@ match sys.argv[1:]:
             f.CHECKS,
             f.distance,
         )
+    case ["failure"]:
+        m = failure
+        train(
+            "failure",
+            ppo.Env(m.reset, m.step, m.OBS_SIZE, m.ACT_SIZE),
+            m.CONFIG,
+            m.MAX_STEPS,
+            m.CHECKS,
+            m.distance,
+        )
     case _:
-        sys.exit("usage: train.py hover|waypoint|forest")
+        sys.exit("usage: train.py hover|waypoint|forest|failure")
