@@ -6,6 +6,7 @@ Usage: train.py hover|waypoint|forest
 import pickle
 import sys
 import time
+from collections.abc import Callable
 from pathlib import Path
 
 import jax
@@ -21,11 +22,12 @@ OUT = Path("out")
 def train[S](
     name: str,
     env: ppo.Env[S],
-    total_steps: int,
+    cfg: ppo.Config,
     max_steps: int,
     checks: list[tuple[str, int]],
+    distance: Callable[[S], jax.Array],
 ) -> None:
-    cfg = ppo.Config(total_steps=total_steps)
+    """distance(state) is one drone's true distance to its target, used by the test."""
     init, update = ppo.make_train(env, cfg)
 
     print(f"task: {name}  device: {jax.devices()[0]}  updates: {cfg.num_updates}")
@@ -57,13 +59,12 @@ def train[S](
         pickle.dump(jax.device_get(runner.params), f)
 
     # Test: 1000 fresh episodes, policy without exploration noise.
-    # The first 3 observation numbers are always (target - position).
     def test_step(
         carry: tuple[S, jax.Array], _step: None
     ) -> tuple[tuple[S, jax.Array], tuple[jax.Array, jax.Array]]:
         s, obs = carry
         s, obs, _, crashed, _ = jax.vmap(env.step)(s, ppo.mlp(runner.params.actor, obs))
-        return (s, obs), (jnp.linalg.norm(obs[:, :3], axis=1), crashed)
+        return (s, obs), (jax.vmap(distance)(s), crashed)
 
     start = jax.vmap(env.reset)(jax.random.split(jax.random.key(1), 1000))
     _, (dist, crashed) = jax.lax.scan(test_step, start, None, max_steps)
@@ -108,27 +109,30 @@ match sys.argv[1:]:
         train(
             "hover",
             ppo.Env(h.reset, h.step, h.OBS_SIZE, h.ACT_SIZE),
-            h.TRAIN_STEPS,
+            h.CONFIG,
             h.MAX_STEPS,
             h.CHECKS,
+            h.distance,
         )
     case ["waypoint"]:
         w = waypoint
         train(
             "waypoint",
             ppo.Env(w.reset, w.step, w.OBS_SIZE, w.ACT_SIZE),
-            w.TRAIN_STEPS,
+            w.CONFIG,
             w.MAX_STEPS,
             w.CHECKS,
+            w.distance,
         )
     case ["forest"]:
         f = forest
         train(
             "forest",
             ppo.Env(f.reset, f.step, f.OBS_SIZE, f.ACT_SIZE),
-            f.TRAIN_STEPS,
+            f.CONFIG,
             f.MAX_STEPS,
             f.CHECKS,
+            f.distance,
         )
     case _:
         sys.exit("usage: train.py hover|waypoint|forest")

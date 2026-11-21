@@ -9,6 +9,9 @@ A crash ends the episode and forfeits everything still to come; that is the only
 avoid trees. Progress alone is not enough: with nothing left to earn at the goal, a crash
 there is free, and the policy learns to dive into the ground at the finish at full speed.
 Without the speed cap it learns to fly at ~10 m/s and can no longer brake at the goal.
+
+Every reading is noisy, like on a real drone (numbers under "Sensor noise" below), so the
+policy cannot learn to trust any single pixel or measurement exactly.
 """
 
 from typing import NamedTuple
@@ -16,12 +19,12 @@ from typing import NamedTuple
 import jax
 import jax.numpy as jnp
 
-from volatus import depth, sim
+from volatus import depth, ppo, sim
 from volatus.waypoint import random_body
 
 SUBSTEPS = 10  # 500 Hz physics, 50 Hz policy
 MAX_STEPS = 400  # 8 s
-TRAIN_STEPS = 300_000_000
+CONFIG = ppo.Config(total_steps=300_000_000)
 CHECKS = [(f"after {sec} s", sec * 50 - 1) for sec in (2, 4, 8)]
 
 TREES = 30
@@ -34,6 +37,13 @@ CEILING = 3.0  # m
 CRUISE_SPEED = 3.0  # m/s
 DRONE_RADIUS = 0.06  # m, a Crazyflie from propeller tip to propeller tip is about 0.1 m
 
+# Sensor noise, one standard deviation. Depth error grows with distance, as on a stereo camera.
+POS_NOISE = 0.02  # m, e.g. from a motion-capture or visual odometry estimate
+VEL_NOISE = 0.05  # m/s
+TILT_NOISE = 0.01  # added to each rotation matrix entry, ~0.6 degrees
+GYRO_NOISE = 0.05  # rad/s
+DEPTH_NOISE = (0.02, 0.02)  # m: fixed part, then per m of distance
+
 OBS_SIZE = 18 + depth.PIXELS
 ACT_SIZE = 4
 
@@ -43,15 +53,38 @@ class EnvState(NamedTuple):
     body: sim.Body
     trees: jax.Array  # (TREES, 3): x, y, radius
     t: jax.Array
+    key: jax.Array  # this episode's sensor noise
 
 
 def observe(s: EnvState) -> jax.Array:
-    """Same 18 numbers as waypoint with the goal as target, then the depth image scaled to 0..1."""
+    """Same 18 numbers as waypoint with the goal as target, then the depth image scaled to
+    0..1, all with sensor noise."""
     d = s.drone
-    seen = depth.image(d.pos, d.quat, s.trees) / depth.MAX_DEPTH
-    return jnp.concatenate(
-        [GOAL - d.pos, d.vel, sim.rotation(d.quat).ravel(), d.omega, seen]
+    k_pos, k_vel, k_rot, k_gyro, k_depth = jax.random.split(
+        jax.random.fold_in(s.key, s.t), 5
     )
+
+    def noise(
+        k: jax.Array, std: float | jax.Array, shape: tuple[int, ...]
+    ) -> jax.Array:
+        return std * jax.random.normal(k, shape)
+
+    seen = depth.image(d.pos, d.quat, s.trees)
+    seen = seen + noise(k_depth, DEPTH_NOISE[0] + DEPTH_NOISE[1] * seen, seen.shape)
+    return jnp.concatenate(
+        [
+            GOAL - d.pos + noise(k_pos, POS_NOISE, (3,)),
+            d.vel + noise(k_vel, VEL_NOISE, (3,)),
+            sim.rotation(d.quat).ravel() + noise(k_rot, TILT_NOISE, (9,)),
+            d.omega + noise(k_gyro, GYRO_NOISE, (3,)),
+            jnp.clip(seen, 0.0, depth.MAX_DEPTH) / depth.MAX_DEPTH,
+        ]
+    )
+
+
+def distance(s: EnvState) -> jax.Array:
+    """True distance to the target, for tests."""
+    return jnp.linalg.norm(GOAL - s.drone.pos)
 
 
 def hits_tree(pos: jax.Array, trees: jax.Array) -> jax.Array:
@@ -61,7 +94,9 @@ def hits_tree(pos: jax.Array, trees: jax.Array) -> jax.Array:
 
 def reset(key: jax.Array) -> tuple[EnvState, jax.Array]:
     """New forest and body. The drone starts near (0, 0, 1), close to level and slow."""
-    k_body, k_tx, k_ty, k_tr, k_pos, k_vel, k_axis, k_angle = jax.random.split(key, 8)
+    k_body, k_tx, k_ty, k_tr, k_pos, k_vel, k_axis, k_angle, k_noise = jax.random.split(
+        key, 9
+    )
     trees = jnp.stack(
         [
             jax.random.uniform(k_tx, (TREES,), minval=FOREST_X[0], maxval=FOREST_X[1]),
@@ -91,7 +126,7 @@ def reset(key: jax.Array) -> tuple[EnvState, jax.Array]:
         omega=jnp.zeros(3),
         thrust=jnp.full(4, sim.HOVER_THRUST),
     )
-    s = EnvState(drone, random_body(k_body), trees, jnp.int32(0))
+    s = EnvState(drone, random_body(k_body), trees, jnp.int32(0), k_noise)
     return s, observe(s)
 
 

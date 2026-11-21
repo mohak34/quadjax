@@ -8,14 +8,14 @@ from typing import NamedTuple
 import jax
 import jax.numpy as jnp
 
-from volatus import sim
+from volatus import ppo, sim
 
 TARGET = jnp.array([0.0, 0.0, 1.0])  # m, world frame; the ground is z = 0
 SUBSTEPS = 10  # physics steps per policy decision: 500 Hz physics, 50 Hz policy
 MAX_STEPS = 250  # policy decisions per episode = 5 s
 OBS_SIZE = 18
 ACT_SIZE = 4
-TRAIN_STEPS = 30_000_000
+CONFIG = ppo.Config(total_steps=30_000_000)
 CHECKS = [(f"after {sec} s", sec * 50 - 1) for sec in (1, 2, 5)]  # (label, policy step)
 
 
@@ -30,6 +30,11 @@ def observe(s: EnvState) -> jax.Array:
     return jnp.concatenate(
         [TARGET - d.pos, d.vel, sim.rotation(d.quat).ravel(), d.omega]
     )
+
+
+def distance(s: EnvState) -> jax.Array:
+    """True distance to the target, for tests."""
+    return jnp.linalg.norm(TARGET - s.drone.pos)
 
 
 def reset(key: jax.Array) -> tuple[EnvState, jax.Array]:

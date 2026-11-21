@@ -14,13 +14,13 @@ from typing import NamedTuple
 import jax
 import jax.numpy as jnp
 
-from volatus import sim
+from volatus import ppo, sim
 
 SUBSTEPS = 10  # 500 Hz physics, 50 Hz policy
 MAX_STEPS = 200  # 4 s
 OBS_SIZE = 18
 ACT_SIZE = 4
-TRAIN_STEPS = 150_000_000
+CONFIG = ppo.Config(total_steps=150_000_000)
 CHECKS = [(f"after {sec} s", sec * 50 - 1) for sec in (1, 2, 4)]
 
 # Targets and starts live in this box, m. Leaving it by more than MARGIN is a crash.
@@ -41,6 +41,11 @@ def observe(s: EnvState) -> jax.Array:
     return jnp.concatenate(
         [s.target - d.pos, d.vel, sim.rotation(d.quat).ravel(), d.omega]
     )
+
+
+def distance(s: EnvState) -> jax.Array:
+    """True distance to the target, for tests."""
+    return jnp.linalg.norm(s.target - s.drone.pos)
 
 
 def random_body(key: jax.Array) -> sim.Body:
