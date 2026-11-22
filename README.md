@@ -13,7 +13,7 @@ All numbers are from 1000 test episodes the policy never trained on, with random
 | Hover | its own state | 0% | under 1 cm |
 | Waypoint (any point in a 3 x 3 x 1.5 m box, start at up to 2 m/s) | state + target | under 1% | about 3 cm |
 | Forest (16 m through 30 random trunks) | noisy state + 32 x 8 noisy depth image | 7% | about 6 cm |
-| Motor failure (one motor dies or weakens mid-flight) | state + motor health | 10% | about 12 cm |
+| Motor failure (one motor dies or weakens mid-flight) | state + its last 8 commands and how its spin changed after each | 21% | about 22 cm |
 
 | Hover | Waypoint |
 |---|---|
@@ -22,6 +22,31 @@ All numbers are from 1000 test episodes the policy never trained on, with random
 ![forest](media/forest.gif)
 
 Six random drones in a forest none of them has seen; the inset is the blue drone's depth image. Four make it, blue and pink hit trunks.
+
+### Policies in MuJoCo, without retraining
+
+Each policy flies the same 1000 test episodes in MuJoCo. The MuJoCo drone is built differently on purpose: each motor is its own actuator at the end of its arm, MuJoCo's own motor lag filter, RK4 integration instead of semi-implicit Euler, and air drag on the whole body, which our sim lacks.
+
+| Task | Crashed, our sim | Crashed, MuJoCo |
+|---|---|---|
+| Hover | 0% | 0% |
+| Waypoint | 0.5% | 0.3% |
+| Forest | 7.3% | 5.0% |
+| Motor failure | 21.3% | 20.8% |
+
+Distances to the target at the end match to within 2 cm. MuJoCo caught one real gap: our sim used to let a failed motor's thrust fade through the motor lag, while in MuJoCo it is gone at once. A policy trained on the gentle version crashed 14% in our sim and 57% in MuJoCo. Training on the instant failure fixed it.
+
+### Against a classical controller
+
+A geometric attitude controller (Lee, Leok and McClamroch, 2010) behind a cascaded position loop as in PX4, given the same 18 state numbers at the same rate and tuned by hand. It knows the nominal drone only.
+
+| Task | Policy crashed | Policy ends | Classical crashed | Classical ends |
+|---|---|---|---|---|
+| Hover | 0% | 0.2 cm | 0% | under 0.1 cm |
+| Waypoint | 0.5% | 3.1 cm | 0.9% | 0.5 cm |
+| Motor failure | 21% | 22 cm | 99.7% | 58 cm |
+
+On the tasks it was designed for, the classical controller is more precise: its integral term removes the steady error the policy has (see Limits). It has no answer to a failed motor.
 
 ### Forest policy on forests it never trained on
 
@@ -54,19 +79,23 @@ With the exact drone as its model the filter never lets a crash through, but dro
 
 Each drone loses a different motor completely at 1 s. Three survive by giving up on heading and spinning at about 5 turns per second, the known way a quadrotor stays up on three motors. Green drifts off and crashes.
 
+Nothing tells the policy that a motor failed or which one. It sees its last 8 commands (32 ms) and how its spin changed after each, and works it out from a command that should have been balanced but made the drone roll.
+
 | Thrust left on the failed motor | Crashed |
 |---|---|
-| 0% (dead) | 19% |
+| 0% (dead) | 40% |
 | 0-25% | 8% |
-| 25-50% | 0% |
+| 25-50% | 1% |
 
-This needed two things: air drag against spinning in the sim (without it the spin grows forever), and a policy that decides 250 times a second instead of 50. At 50 Hz every dead-motor case crashed.
+Telling the policy each motor's health on top did not help: 27.5% crashed, against 21.3% without it.
+
+This needed: air drag against spinning in the sim (without it the spin grows forever), a policy that decides 250 times a second instead of 50 (at 50 Hz every dead-motor case crashed), the history given as spin changes rather than raw spin (with raw spin, 82% crashed even when told the motor health), and a 128-unit network (64 units crashed 54%).
 
 ## Limits
 
-- The motor-failure policy is told which motor failed. A real drone would have to work that out from how it moves.
+- A fully dead motor still crashes 40% of the time.
 - The safety filter uses the true tree map. A real drone would build it from its own depth frames.
-- No policy has memory, so none can work out how heavy its drone is. That is the waypoint height error, and why the filter's model is off.
+- Only the failure policy has memory, and only 32 ms of it, so no policy can work out how heavy its drone is. That is the waypoint height error, and why the filter's model is off.
 - The yaw drag strength is picked to give a plausible spin, not measured.
 - Camera delay is not modeled.
 
@@ -97,6 +126,8 @@ uv run python scripts/watch_forest.py    # watch it fly
 |---|---|---|
 | `stress_forest.py [params]` | Forest policy on forests it never trained on: crash and reach rate per kind | forest |
 | `shield_forest.py [params]` | Forest policy with the safety filter off, nominal and exact | forest, waypoint |
+| `transfer.py [task ...]` | Each policy in our sim and in MuJoCo on the same 1000 episodes | the tasks named |
+| `baseline.py [task ...]` | Each policy against the classical controller (hover, waypoint, failure) | the tasks named |
 
 ### Check the sim
 
