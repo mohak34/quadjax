@@ -37,7 +37,7 @@ TOLD_HEALTH = False
 ACT_SIZE = 4
 # hover's 18, then per past step its command (4) and spin change (3), then the motor healths
 OBS_SIZE = 18 + HISTORY * (3 + ACT_SIZE) + (4 if TOLD_HEALTH else 0)
-CONFIG = ppo.Config(total_steps=1_000_000_000, gamma=0.998)
+CONFIG = ppo.Config(total_steps=1_000_000_000, gamma=0.998, hidden=128)
 CHECKS = [(f"after {sec} s", sec * HZ - 1) for sec in (2, 4, 6)]
 
 
@@ -100,8 +100,11 @@ def step(
 ) -> tuple[EnvState, jax.Array, jax.Array, jax.Array, jax.Array]:
     cmd = sim.HOVER_THRUST * (1 + action)
     body = s.body._replace(motor_gain=s.body.motor_gain * health(s))
-    drone = jax.lax.fori_loop(0, SUBSTEPS, lambda _, d: sim.step(d, cmd, body), s.drone)
-    seen = jnp.concatenate([action, SPIN_SCALE * (drone.omega - s.drone.omega)])
+    # The failure takes the thrust away at once, not through the motor lag.
+    failing = jnp.where(s.t == s.fail_at, health(s), 1.0)
+    start = s.drone._replace(thrust=s.drone.thrust * failing)
+    drone = jax.lax.fori_loop(0, SUBSTEPS, lambda _, d: sim.step(d, cmd, body), start)
+    seen = jnp.concatenate([action, SPIN_SCALE * (drone.omega - start.omega)])
     s = s._replace(
         drone=drone, t=s.t + 1, past=jnp.concatenate([seen[None], s.past[:-1]])
     )
