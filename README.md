@@ -70,19 +70,39 @@ This needed two things: air drag against spinning in the sim (without it the spi
 - The yaw drag strength is picked to give a plausible spin, not measured.
 - Camera delay is not modeled.
 
-## Scripts
+## Running it
 
-- `uv run python scripts/fly.py`: flies one drone with fixed motor commands. Correct looks like: hover stays at z=1.0000, climb rises about 0.46 m in 1 s, and with the front-right motor at +5% it rolls and pitches negative (front-right side lifts) and drifts toward back-left (x negative, y positive).
-- `uv run python scripts/compare.py`: gives our sim and MuJoCo the same thrust and torques for 3 s and saves `out/compare.png`. Correct looks like: the two lines overlap in every panel, the position gap stays well under 1 mm and the attitude gap under 0.01 deg.
-- `uv run python scripts/bench.py`: steps 1 to 65536 drones at once for 2 s of flight and prints the speed. On an RTX 3080 Laptop, 4096 drones run about 600,000 flight-seconds per real second.
-- `uv run python scripts/train.py hover`: trains the hover policy with PPO (about 20 s on the GPU), then tests it on 1000 new random starts. Saves `out/hover_curve.png`, `out/hover_curve.csv` and `out/hover_params.pkl`. Correct looks like: return climbs from near 0 to about 225 (250 is the max, the gap is time spent flying in from the start point), 0 crashes, and under 1 cm from the target after 5 s.
-- `uv run python scripts/watch_hover.py`: needs `train.py hover` run first. Six trained drones fly in from random tilted starts; saves `out/hover.gif` (5 s). Correct looks like: all six reach the gray target ball within about 2 s and end stacked on it, still.
-- `uv run python scripts/train.py waypoint`: trains a policy that flies to any point in a 3 x 3 x 1.5 m box from mid-flight (up to 2 m/s, tilted), on drones with randomized mass, inertia and motors (about 50 s). Correct looks like: return levels off near 155 of 200, a handful of crashes in 1000 (heavy drones starting low and diving), and about 3 cm from the target after 4 s. The 3 cm is mostly height: heavy drones sit a little low, because the policy has no memory to learn how heavy this drone is.
-- `uv run python scripts/watch_waypoint.py`: needs `train.py waypoint` run first. A light, a normal and a heavy lopsided drone fly the same 5-waypoint course; prints arrival times and saves `out/waypoint.gif`. Correct looks like: all three reach 5/5, the heavy one a second or so behind, and all end holding on the last ball.
-- `uv run python scripts/check_depth.py`: casts the depth camera's rays at 50 random poses in a random forest with our raycaster and with MuJoCo's, then saves `out/depth.png` (top view of the rays next to the 32 x 8 depth image). Correct looks like: the largest gap is well under 1 mm, and each bright column in the image lines up with a trunk hit by an orange ray.
-- `uv run python scripts/train.py forest`: trains a policy that flies from x = 0 through a random 30-trunk forest to a goal at x = 16 m and holds there, seeing trees only through the depth image (about 6 min). Every sensor reading is noisy. Correct looks like: return climbs past 200, about 7 in 100 test drones crash (mostly into trunks), and the rest sit about 6 cm from the goal after 8 s.
-- `uv run python scripts/watch_forest.py`: needs `train.py forest` run first. Six drones with random bodies fly the same new forest, seen from above; the inset is the blue drone's depth image. Prints each drone's outcome and saves `out/forest.gif`. Correct looks like: with the default seed, four make it and sit within about 9 cm of the goal, and blue and pink hit trunks at 2.3 and 2.4 s.
-- `uv run python scripts/stress_forest.py [params]`: flies a trained forest policy through 1000 new forests of each kind it never trained on (fewer or more trunks, thinner or thicker trunks) and prints crash rate and how many reached the goal per kind.
-- `uv run python scripts/shield_forest.py [params]`: needs `train.py forest` and `train.py waypoint` run first. Flies the forest policy with the safety filter off, on with the nominal drone as its model, and on with the exact drone flying as its model, in 1000 forests each of 30, 45 and 60 trunks (about 5 min). Correct looks like: with the exact drone the filter crashes 0 times in every forest, at the cost of drones that brake so often they don't reach the goal in 8 s. With the nominal drone it roughly halves crashes in the dense forests and barely changes them in the normal one: its predictions are off by 10-20 cm on a randomized drone.
-- `uv run python scripts/train.py failure`: trains a policy that holds a point while one motor dies or drops to 0-50% thrust at a random moment, at 250 decisions per second (about 4 min). The policy is told each motor's health. Correct looks like: about 1 in 10 test drones crash, nearly all of them with a fully dead motor, and the rest end about 12 cm from the point after 6 s.
-- `uv run python scripts/watch_failure.py`: needs `train.py failure` run first. Four drones each lose a different motor completely at 1 s; saves `out/failure.gif`. Correct looks like: the survivors spin at about 5 turns per second and hold within a few cm of their point (that spin is how a quadrotor with three motors stays up); with the default seed green drifts away and crashes at 4.3 s.
+Needs an NVIDIA GPU and [uv](https://docs.astral.sh/uv/). Everything writes to `out/`.
+
+```
+uv sync
+uv run python scripts/train.py forest    # train a task
+uv run python scripts/watch_forest.py    # watch it fly
+```
+
+### Train and watch
+
+`train.py <task>` trains with PPO, tests on 1000 new episodes and saves `out/<task>_params.pkl` and a learning curve. Each watch script needs its task trained first and saves a GIF. Times are on an RTX 3080 Laptop.
+
+| Task | Train | Watch | Train time |
+|---|---|---|---|
+| Hover | `train.py hover` | `watch_hover.py` | 20 s |
+| Waypoint | `train.py waypoint` | `watch_waypoint.py` | 50 s |
+| Forest | `train.py forest` | `watch_forest.py` | 6 min |
+| Motor failure | `train.py failure` | `watch_failure.py` | 4 min |
+
+### Evaluate
+
+| Script | What it does | Needs |
+|---|---|---|
+| `stress_forest.py [params]` | Forest policy on forests it never trained on: crash and reach rate per kind | forest |
+| `shield_forest.py [params]` | Forest policy with the safety filter off, nominal and exact (5 min) | forest, waypoint |
+
+### Check the sim
+
+| Script | What it does | Correct looks like |
+|---|---|---|
+| `compare.py` | Same thrust and torques into our sim and MuJoCo for 3 s, saves `out/compare.png` | position gap under 1 mm, attitude under 0.01 deg |
+| `check_depth.py` | Our depth raycaster vs MuJoCo's at 50 random poses, saves `out/depth.png` | largest gap under 1 mm |
+| `fly.py` | One drone on fixed motor commands | hover holds z = 1.0000, climb rises about 0.46 m in 1 s |
+| `bench.py` | Sim speed for 1 to 65536 drones | about 600,000 flight-seconds per second at 4096 drones |
