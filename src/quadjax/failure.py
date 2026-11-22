@@ -1,8 +1,10 @@
 """Motor failure task: hold a point while, at a random moment, one motor weakens or dies.
 
 Half the failures kill the motor outright; the rest leave it at 0-50% of its thrust.
-The policy is told each motor's health (1 = fine, 0 = dead), as if a separate fault detector
-had spotted the failure. Without that it would have to work it out from how the drone moves.
+Nothing tells the policy a motor failed. It sees its last HISTORY commands and how its spin
+changed right after each, so it can work out which motor stopped answering: a command that
+should have been balanced now makes the drone roll. With TOLD_HEALTH it also gets each
+motor's health (1 = fine, 0 = dead), as if a separate fault detector had spotted the failure.
 
 With one motor dead, the drone cannot hold its heading: the three left over cannot cancel
 each other's twist. What still works is to give up on heading and spin fast about the
@@ -28,8 +30,13 @@ HZ = 250  # policy decisions per second
 SUBSTEPS = round(1 / (HZ * sim.DT))  # physics steps per decision
 MAX_STEPS = 6 * HZ  # 6 s
 FAIL_AT = (HZ // 2, 2 * HZ)  # policy steps: the failure comes between 0.5 and 2 s in
-OBS_SIZE = 22  # hover's 18, then the four motor healths
+HISTORY = 8  # past policy steps seen, 32 ms
+# rad/s per policy step to policy units: brings spin changes to about the size of commands
+SPIN_SCALE = 5.0
+TOLD_HEALTH = False
 ACT_SIZE = 4
+# hover's 18, then per past step its command (4) and spin change (3), then the motor healths
+OBS_SIZE = 18 + HISTORY * (3 + ACT_SIZE) + (4 if TOLD_HEALTH else 0)
 CONFIG = ppo.Config(total_steps=1_000_000_000, gamma=0.998)
 CHECKS = [(f"after {sec} s", sec * HZ - 1) for sec in (2, 4, 6)]
 
@@ -41,6 +48,8 @@ class EnvState(NamedTuple):
     left: jax.Array  # its thrust after the failure, as a share of normal
     fail_at: jax.Array  # policy step it fails at
     t: jax.Array
+    # (HISTORY, 7): a command, then the spin change it was followed by; newest first
+    past: jax.Array
 
 
 def health(s: EnvState) -> jax.Array:
@@ -51,8 +60,10 @@ def health(s: EnvState) -> jax.Array:
 
 def observe(s: EnvState) -> jax.Array:
     d = s.drone
+    told = [health(s)] if TOLD_HEALTH else []
     return jnp.concatenate(
-        [TARGET - d.pos, d.vel, sim.rotation(d.quat).ravel(), d.omega, health(s)]
+        [TARGET - d.pos, d.vel, sim.rotation(d.quat).ravel(), d.omega, s.past.ravel()]
+        + told
     )
 
 
@@ -79,6 +90,7 @@ def reset(key: jax.Array) -> tuple[EnvState, jax.Array]:
         left,
         jax.random.randint(k_at, (), *FAIL_AT),
         jnp.int32(0),
+        jnp.zeros((HISTORY, 3 + ACT_SIZE)),
     )
     return s, observe(s)
 
@@ -89,7 +101,10 @@ def step(
     cmd = sim.HOVER_THRUST * (1 + action)
     body = s.body._replace(motor_gain=s.body.motor_gain * health(s))
     drone = jax.lax.fori_loop(0, SUBSTEPS, lambda _, d: sim.step(d, cmd, body), s.drone)
-    s = s._replace(drone=drone, t=s.t + 1)
+    seen = jnp.concatenate([action, SPIN_SCALE * (drone.omega - s.drone.omega)])
+    s = s._replace(
+        drone=drone, t=s.t + 1, past=jnp.concatenate([seen[None], s.past[:-1]])
+    )
     dist = jnp.linalg.norm(TARGET - drone.pos)
     reward = jnp.exp(-dist - 0.1 * jnp.linalg.norm(drone.omega[:2]))
     crashed = (drone.pos[2] < 0) | (dist > 3)
