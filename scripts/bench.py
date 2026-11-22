@@ -5,7 +5,7 @@ import time
 import jax
 import jax.numpy as jnp
 
-from volatus import sim
+from quadjax import sim
 
 STEPS = 1000  # 2 s of flight at 500 Hz
 

@@ -12,7 +12,7 @@ from pathlib import Path
 import jax
 import jax.numpy as jnp
 
-from volatus import forest, ppo
+from quadjax import forest, ppo
 
 PARAMS = Path(sys.argv[1] if len(sys.argv) > 1 else "out/forest_params.pkl")
 N = 1000

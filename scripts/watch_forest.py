@@ -12,7 +12,7 @@ import jax.numpy as jnp
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
-from volatus import depth, forest, ppo, render
+from quadjax import depth, forest, ppo, render
 
 OUT = Path("out")
 N = 6

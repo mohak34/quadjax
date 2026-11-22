@@ -14,7 +14,7 @@ from typing import NamedTuple
 import jax
 import jax.numpy as jnp
 
-from volatus import ppo, sim
+from quadjax import ppo, sim
 
 SUBSTEPS = 10  # 500 Hz physics, 50 Hz policy
 MAX_STEPS = 200  # 4 s

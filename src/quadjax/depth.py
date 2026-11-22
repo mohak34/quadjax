@@ -9,7 +9,7 @@ when the drone pitches nose-down to fly, the picture tilts toward the ground wit
 import jax
 import jax.numpy as jnp
 
-from volatus import sim
+from quadjax import sim
 
 WIDTH, HEIGHT = 32, 8  # pixels
 HFOV, VFOV = 90.0, 60.0  # degrees, field of view across and up-down

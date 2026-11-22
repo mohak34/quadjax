@@ -15,7 +15,7 @@ import jax.numpy as jnp
 import numpy as np
 from PIL import ImageDraw, ImageFont
 
-from volatus import failure, ppo, render
+from quadjax import failure, ppo, render
 
 OUT = Path("out")
 N = 4

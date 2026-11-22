@@ -14,7 +14,7 @@ import matplotlib.pyplot as plt
 import mujoco
 import numpy as np
 
-from volatus import sim
+from quadjax import sim
 
 SECONDS = 3.0
 OUT = Path("out/compare.png")

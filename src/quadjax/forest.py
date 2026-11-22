@@ -23,8 +23,8 @@ from typing import NamedTuple
 import jax
 import jax.numpy as jnp
 
-from volatus import depth, ppo, sim
-from volatus.waypoint import random_body
+from quadjax import depth, ppo, sim
+from quadjax.waypoint import random_body
 
 SUBSTEPS = 10  # 500 Hz physics, 50 Hz policy
 MAX_STEPS = 400  # 8 s

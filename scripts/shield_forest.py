@@ -1,4 +1,4 @@
-"""Fly the forest policy with and without the safety filter (volatus.shield) through 1000 new
+"""Fly the forest policy with and without the safety filter (quadjax.shield) through 1000 new
 forests of a few densities, and compare crash rates.
 
 Usage: shield_forest.py [forest params], default out/forest_params.pkl. Needs
@@ -14,7 +14,7 @@ from pathlib import Path
 import jax
 import jax.numpy as jnp
 
-from volatus import forest, ppo, shield
+from quadjax import forest, ppo, shield
 
 PARAMS = Path(sys.argv[1] if len(sys.argv) > 1 else "out/forest_params.pkl")
 N = 1000

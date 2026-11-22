@@ -14,7 +14,7 @@ import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import numpy as np
 
-from volatus import failure, forest, hover, ppo, waypoint
+from quadjax import failure, forest, hover, ppo, waypoint
 
 OUT = Path("out")
 

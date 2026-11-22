@@ -6,7 +6,7 @@ from pathlib import Path
 import jax
 import numpy as np
 
-from volatus import hover, ppo, render, sim
+from quadjax import hover, ppo, render, sim
 
 N = 6
 OUT = Path("out")

@@ -11,7 +11,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from volatus import ppo, render, sim, waypoint
+from quadjax import ppo, render, sim, waypoint
 
 OUT = Path("out")
 REACHED = 0.15  # m

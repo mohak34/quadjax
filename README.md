@@ -1,4 +1,4 @@
-# volatus
+# quadjax
 
 A quadrotor that learns to fly with reinforcement learning. The simulator and PPO are written from scratch in JAX, so thousands of drones train at once on one GPU. MuJoCo is the cross-check for the physics and the depth camera.
 

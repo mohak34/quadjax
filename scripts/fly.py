@@ -3,7 +3,7 @@
 import jax
 import jax.numpy as jnp
 
-from volatus import sim
+from quadjax import sim
 
 
 def roll_pitch_deg(q: jax.Array) -> tuple[float, float]:

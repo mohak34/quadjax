@@ -18,7 +18,7 @@ from typing import NamedTuple
 import jax
 import jax.numpy as jnp
 
-from volatus import forest, ppo, sim
+from quadjax import forest, ppo, sim
 
 HORIZON = 75  # policy steps of braking checked ahead, 1.5 s: stop, swing back, settle
 MARGIN = 0.1  # m added to every trunk, the ground, the walls and the ceiling

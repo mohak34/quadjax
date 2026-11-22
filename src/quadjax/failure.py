@@ -19,8 +19,8 @@ from typing import NamedTuple
 import jax
 import jax.numpy as jnp
 
-from volatus import ppo, sim
-from volatus.waypoint import random_body
+from quadjax import ppo, sim
+from quadjax.waypoint import random_body
 
 # m, higher than hover: the failure costs some height
 TARGET = jnp.array([0.0, 0.0, 1.5])

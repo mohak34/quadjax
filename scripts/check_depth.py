@@ -13,7 +13,7 @@ import matplotlib.pyplot as plt
 import mujoco
 import numpy as np
 
-from volatus import depth, sim
+from quadjax import depth, sim
 
 OUT = Path("out")
 k_xy, k_r, k_pose = jax.random.split(jax.random.key(0), 3)

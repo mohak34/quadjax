@@ -8,7 +8,7 @@ from typing import NamedTuple
 import jax
 import jax.numpy as jnp
 
-from volatus import ppo, sim
+from quadjax import ppo, sim
 
 TARGET = jnp.array([0.0, 0.0, 1.0])  # m, world frame; the ground is z = 0
 SUBSTEPS = 10  # physics steps per policy decision: 500 Hz physics, 50 Hz policy
