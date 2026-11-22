@@ -82,27 +82,27 @@ uv run python scripts/watch_forest.py    # watch it fly
 
 ### Train and watch
 
-`train.py <task>` trains with PPO, tests on 1000 new episodes and saves `out/<task>_params.pkl` and a learning curve. Each watch script needs its task trained first and saves a GIF. Times are on an RTX 3080 Laptop.
+`train.py <task>` trains with PPO, tests on 1000 new episodes and saves `out/<task>_params.pkl` and a learning curve. Each watch script needs its task trained first and saves a GIF.
 
-| Task | Train | Watch | Train time |
-|---|---|---|---|
-| Hover | `train.py hover` | `watch_hover.py` | 20 s |
-| Waypoint | `train.py waypoint` | `watch_waypoint.py` | 50 s |
-| Forest | `train.py forest` | `watch_forest.py` | 6 min |
-| Motor failure | `train.py failure` | `watch_failure.py` | 4 min |
+| Task | Train | Watch |
+|---|---|---|
+| Hover | `train.py hover` | `watch_hover.py` |
+| Waypoint | `train.py waypoint` | `watch_waypoint.py` |
+| Forest | `train.py forest` | `watch_forest.py` |
+| Motor failure | `train.py failure` | `watch_failure.py` |
 
 ### Evaluate
 
 | Script | What it does | Needs |
 |---|---|---|
 | `stress_forest.py [params]` | Forest policy on forests it never trained on: crash and reach rate per kind | forest |
-| `shield_forest.py [params]` | Forest policy with the safety filter off, nominal and exact (5 min) | forest, waypoint |
+| `shield_forest.py [params]` | Forest policy with the safety filter off, nominal and exact | forest, waypoint |
 
 ### Check the sim
 
-| Script | What it does | Correct looks like |
+| Script | What it does | Expected |
 |---|---|---|
 | `compare.py` | Same thrust and torques into our sim and MuJoCo for 3 s, saves `out/compare.png` | position gap under 1 mm, attitude under 0.01 deg |
 | `check_depth.py` | Our depth raycaster vs MuJoCo's at 50 random poses, saves `out/depth.png` | largest gap under 1 mm |
 | `fly.py` | One drone on fixed motor commands | hover holds z = 1.0000, climb rises about 0.46 m in 1 s |
-| `bench.py` | Sim speed for 1 to 65536 drones | about 600,000 flight-seconds per second at 4096 drones |
+| `bench.py` | Sim throughput for 1 to 65536 parallel drones | - |
